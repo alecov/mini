@@ -82,6 +82,8 @@ int main(int argc, char* argv[]) {
 	/* Map the image area. */
 	if (image_size < (size_t)stat.st_size + STACK_SIZE)
 		image_size = stat.st_size + STACK_SIZE;
+	int pagesize = getpagesize();
+	image_size = pagesize*(1 + (image_size - 1)/pagesize);
 	void* stack_addr = (void*)(IMAGE_ADDR + image_size);
 	if (mmap((void*)BASE_ADDR, BASE_SIZE + image_size,
 		PROT_EXEC | PROT_READ | PROT_WRITE, MAP_ANONYMOUS |

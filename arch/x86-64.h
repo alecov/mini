@@ -22,6 +22,7 @@
 		"movq %%rsp, %[oldrsp]\n\t"                                   \
 		"xorl %%ebp, %%ebp\n\t"                                       \
 		"movq %[stack_addr], %%rsp\n\t"                               \
+		"subq $8, %%rsp\n\t"                                          \
 		"call *%%rsi\n\t"                                             \
 		"movq %[oldrbp], %%rbp\n\t"                                   \
 		"movq %[oldrsp], %%rsp\n\t"                                   \
