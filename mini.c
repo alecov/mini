@@ -20,6 +20,7 @@
 
 #include <SDL2/SDL.h>
 
+#define MINI_BUILD
 #include "arch.h"
 
 #ifndef MAP_FIXED_NOREPLACE
@@ -38,20 +39,23 @@ size_t parse_size(const char* str) {
 	errno = 0;
 	char* error;
 	uintmax_t result = strtoumax(str, &error, 0);
-	if (errno || result > SIZE_MAX)
+	if (errno)
 		err(1, "strtoumax");
-	uintmax_t unit = result;
+	int shift = 0;
 	switch (*error) {
 		case 0:
 		case 'B': break;
-		case 'K': result <<= 10; break;
-		case 'M': result <<= 20; break;
-		case 'G': result <<= 30; break;
-		case 'T': result <<= 40; break;
+		case 'K': shift = 10; break;
+		case 'M': shift = 20; break;
+		case 'G': shift = 30; break;
+		case 'T': shift = 40; break;
 		default: errx(1, "syntax error");
 	}
-	if (unit > result || result > SIZE_MAX)
-		err(1, "integer overflow");
+	if (
+		result & (-((uintmax_t)1 << shift)) ||
+		(result <<= shift) > SIZE_MAX
+	)
+		errx(1, "integer overflow");
 	return result;
 }
 
@@ -84,6 +88,7 @@ int main(int argc, char* argv[]) {
 		image_size = stat.st_size + STACK_SIZE;
 	int pagesize = getpagesize();
 	image_size = pagesize*(1 + (image_size - 1)/pagesize);
+	printf("Image size: %zu bytes\n", image_size);
 	void* stack_addr = (void*)(IMAGE_ADDR + image_size);
 	if (mmap((void*)BASE_ADDR, BASE_SIZE + image_size,
 		PROT_EXEC | PROT_READ | PROT_WRITE, MAP_ANONYMOUS |
@@ -101,14 +106,12 @@ int main(int argc, char* argv[]) {
 	/* Create an SDL window. */
 	SDL_Window* window = SDL_CreateWindow(file,
 		SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-		VIDEO_W, VIDEO_H, 0);
+		VIDEO_W, VIDEO_H, SDL_WINDOW_RESIZABLE);
 	if (!window)
 		errx(4, "SDL_CreateWindow: %s", SDL_GetError());
 
 	/* Grab the window's surface. */
 	SDL_Surface* surface = SDL_GetWindowSurface(window);
-	if (!surface)
-		errx(4, "SDL_GetWindowSurface: %s", SDL_GetError());
 
 	/* Create an SDL surface for the video buffer. */
 	SDL_Surface* video = SDL_CreateRGBSurfaceFrom((void*)VIDEO_ADDR,
@@ -140,10 +143,6 @@ int main(int argc, char* argv[]) {
 
 		/* Call the entrypoint. */
 		CALL_ENTRYPOINT;
-
-		/* Exit on return. SYS_exit must be called explicitly to */
-		/* avoid Glibc's cleanup stuff from killing the process. */
-		syscall(SYS_exit, 0);
 	}
 	if (pid < 0)
 		err(5, "fork");
@@ -152,15 +151,27 @@ int main(int argc, char* argv[]) {
 	for (;;) {
 		SDL_Event event;
 		if (SDL_WaitEventTimeout(&event, 50))
-			if (event.type == SDL_QUIT)
+			switch (event.type) {
+			case SDL_QUIT:
+				goto exit;
+			case SDL_WINDOWEVENT:
+				switch (event.window.event) {
+				case SDL_WINDOWEVENT_RESIZED:
+					/* Grab the window's surface
+					   after resizing. */
+					surface = SDL_GetWindowSurface(window);
+					break;
+				}
 				break;
+			}
 
 		/* Blit the surface and loop. */
-		SDL_BlitSurface(video, NULL, surface, NULL);
+		SDL_BlitScaled(video, NULL, surface, NULL);
 		SDL_UpdateWindowSurface(window);
 	}
 
 	/* Kill the parallel process and reap it. */
+	exit:
 	if (kill(pid, SIGKILL) < 0)
 		err(6, "kill");
 	int status;

@@ -13,10 +13,12 @@
 #define IMAGE_SIZE 0x00001000
 #define STACK_SIZE 0x00001000
 
+#ifdef MINI_BUILD
 #ifdef __i386__
 	#include "arch/x86.h"
 #elif defined __x86_64__
 	#include "arch/x86-64.h"
 #else
 	#error Unsupported architecture
+#endif
 #endif
