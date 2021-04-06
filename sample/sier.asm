@@ -11,7 +11,7 @@ video_o	equ video_w*(video_h - sierp)/2 + video_w/2
 	add edi, 4*video_o
 plot:	test dl, al
 	jnz skip
-	mov dword [edi], yellow
+	mov dword [rdi], yellow
 skip:	add edi, 4*col
 	inc al
 	jnz plot
