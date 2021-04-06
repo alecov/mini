@@ -87,9 +87,9 @@ int main(int argc, char* argv[]) {
 	if (image_size < (size_t)stat.st_size + STACK_SIZE)
 		image_size = stat.st_size + STACK_SIZE;
 	int pagesize = getpagesize();
-	image_size = pagesize*(1 + (image_size - 1)/pagesize);
+	image_size = pagesize*(1 + (image_size - 1)/pagesize + 1);
 	printf("Image size: %zu bytes\n", image_size);
-	void* stack_addr = (void*)(IMAGE_ADDR + image_size);
+	void* stack_addr = (void*)(IMAGE_ADDR + image_size - pagesize);
 	if (mmap((void*)BASE_ADDR, BASE_SIZE + image_size,
 		PROT_EXEC | PROT_READ | PROT_WRITE, MAP_ANONYMOUS |
 		MAP_SHARED | MAP_FIXED_NOREPLACE | MAP_NORESERVE,
