@@ -24,7 +24,7 @@
 #include "arch.h"
 
 #ifndef MAP_FIXED_NOREPLACE
-#define MAP_FIXED_NOREPLACE 0
+#define MAP_FIXED_NOREPLACE 0x100000
 #endif
 
 const char optstring[] = "s:";
