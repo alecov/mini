@@ -2,7 +2,7 @@
 
 #include <mini.h>
 
-void _start(void) {
+ENTRY {
 	int x, y, z, d;
 	z = 0, d = 1;
 	for (;;) {
