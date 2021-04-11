@@ -131,7 +131,11 @@ int main(int argc, char* argv[]) {
 		while ((dir = readdir(fds)) != NULL) {
 			errno = 0;
 			long fd = strtol(dir->d_name, &error, 10);
-			if (*error || errno || fd == dirfd(fds))
+			if (*error || errno ||
+				fd == STDIN_FILENO ||
+				fd == STDOUT_FILENO ||
+				fd == STDERR_FILENO ||
+				fd == dirfd(fds))
 				continue;
 			close(fd);
 		}
