@@ -28,7 +28,8 @@
 const char optstring[] = "s:b:";
 const struct option longopts[] = {
 	{"image-size", required_argument, NULL, 's'},
-	{"bits", required_argument, NULL, 'b'}
+	{"bits", required_argument, NULL, 'b'},
+	{}
 };
 
 unsigned bits;
