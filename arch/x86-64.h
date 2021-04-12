@@ -2,7 +2,7 @@
  * x86-64 entrypoint:
  * - Do not constrain rbp and allow it to spill.
  */
-#define CALL_ENTRYPOINT do {                                                  \
+#define CALL_ENTRYPOINT(stack) do {                                           \
 	register void* rax __asm__("rax") = (void*)0;                         \
 	register void* rbx __asm__("rbx") = (void*)IMAGE_ADDR;                \
 	register void* rcx __asm__("rcx") = (void*)-1;                        \
@@ -28,7 +28,7 @@
 		   "r"(rsi), "r"(rdi),                                        \
 		   "r"(r8),  "r"(r9),  "r"(r10), "r"(r11),                    \
 		   "r"(r12), "r"(r13), "r"(r14), "r"(r15),                    \
-		   [stack_addr]"m"(stack_addr)                                \
+		   [stack_addr]"m"(stack)                                     \
 	);                                                                    \
 	__builtin_unreachable();                                              \
 } while (0)

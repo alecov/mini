@@ -1,13 +1,11 @@
 /* mini: a mini console for demos. */
 
 #define _GNU_SOURCE
-#include <dirent.h>
 #include <err.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <getopt.h>
 #include <limits.h>
-#include <linux/seccomp.h>
 #include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -27,11 +25,13 @@
 #define MAP_FIXED_NOREPLACE 0x100000
 #endif
 
-const char optstring[] = "s:";
+const char optstring[] = "s:b:";
 const struct option longopts[] = {
-	{"image-size", required_argument, NULL, 's'}
+	{"image-size", required_argument, NULL, 's'},
+	{"bits", required_argument, NULL, 'b'}
 };
 
+unsigned bits;
 const char* file;
 size_t image_size = IMAGE_SIZE;
 
@@ -60,7 +60,6 @@ size_t parse_size(const char* str) {
 }
 
 int main(int argc, char* argv[]) {
-	char* error;
 	int option;
 	while ((option = getopt_long
 		(argc, argv, optstring, longopts, NULL)) != -1)
@@ -68,6 +67,14 @@ int main(int argc, char* argv[]) {
 			case 's':
 				image_size = parse_size(optarg);
 				break;
+			case 'b': {
+				errno = 0;
+				char* error;
+				bits = strtoul(optarg, &error, 10);
+				if (*error || errno)
+					errx(1, "invalid bits: %s", optarg);
+				break;
+			}
 			default:
 				return EXIT_FAILURE;
 		}
@@ -78,37 +85,46 @@ int main(int argc, char* argv[]) {
 	if (!file)
 		fd = STDIN_FILENO;
 	else if ((fd = open(file, 0)) < 0)
-		err(2, "open");
-	struct stat stat;
-	if (fstat(fd, &stat) < 0)
-		err(2, "fstat");
+		err(-1, "open");
+	struct stat st;
+	if (fstat(fd, &st) < 0)
+		err(-1, "fstat");
 
 	/* Map the image area. */
-	if (image_size < (size_t)stat.st_size + STACK_SIZE)
-		image_size = stat.st_size + STACK_SIZE;
+	if (image_size < (size_t)st.st_size + STACK_SIZE)
+		image_size = st.st_size + STACK_SIZE;
 	int pagesize = getpagesize();
 	image_size = pagesize*(1 + (image_size - 1)/pagesize + 1);
-	printf("Image size: %zu bytes\n", image_size);
-	void* stack_addr = (void*)(IMAGE_ADDR + image_size - pagesize);
-	if (mmap((void*)BASE_ADDR, BASE_SIZE + image_size,
-		PROT_EXEC | PROT_READ | PROT_WRITE, MAP_ANONYMOUS |
+	printf("Image size: %zu bytes (%zu x %i pages)\n", image_size,
+		image_size/pagesize, pagesize);
+	image_size += BASE_SIZE;
+	int mem = syscall(SYS_memfd_create, "mem", 0);
+	if (mem < 0)
+		err(-1, "memfd");
+	if (ftruncate(mem, image_size) < 0)
+		err(-1, "ftruncate");
+	if (mmap((void*)BASE_ADDR, image_size,
+		PROT_EXEC | PROT_READ | PROT_WRITE,
 		MAP_SHARED | MAP_FIXED_NOREPLACE | MAP_NORESERVE,
-		0, 0) == MAP_FAILED)
-		err(3, "mmap");
-	if (read(fd, (void*)ENTRY_ADDR, stat.st_size) < 0)
-		err(3, "read");
+		mem, 0) == MAP_FAILED)
+		err(-1, "mmap");
+	if (read(fd, (void*)ENTRY_ADDR, st.st_size) < 0)
+		err(-1, "read");
 	close(fd);
+	if (dup2(mem, 3) < 0)
+		err(-1, "dup2");
+	close(mem);
 
 	/* Initialize SDL. */
 	if (SDL_Init(SDL_INIT_VIDEO) < 0)
-		errx(4, "SDL_Init: %s", SDL_GetError());
+		errx(-2, "SDL_Init: %s", SDL_GetError());
 
 	/* Create an SDL window. */
 	SDL_Window* window = SDL_CreateWindow(file,
 		SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
 		VIDEO_W, VIDEO_H, SDL_WINDOW_RESIZABLE);
 	if (!window)
-		errx(4, "SDL_CreateWindow: %s", SDL_GetError());
+		errx(-2, "SDL_CreateWindow: %s", SDL_GetError());
 
 	/* Grab the window's surface. */
 	SDL_Surface* surface = SDL_GetWindowSurface(window);
@@ -118,38 +134,35 @@ int main(int argc, char* argv[]) {
 		VIDEO_W, VIDEO_H, VIDEO_D, VIDEO_D/CHAR_BIT*VIDEO_W,
 		0x000000FF, 0x0000FF00, 0x00FF0000, 0);
 	if (!video)
-		errx(4, "SDL_CreateRGBSurfaceFrom: %s", SDL_GetError());
+		errx(-2, "SDL_CreateRGBSurfaceFrom: %s", SDL_GetError());
 
 	/* Fork a parallel process to run the image. */
-	pid_t pid;
-	if ((pid = fork()) == 0) {
-		/* Close all fds. */
-		DIR* fds;
-		if ((fds = opendir("/proc/self/fd")) == NULL)
-			err(6, "opendir");
-		struct dirent* dir;
-		while ((dir = readdir(fds)) != NULL) {
-			errno = 0;
-			long fd = strtol(dir->d_name, &error, 10);
-			if (*error || errno ||
-				fd == STDIN_FILENO ||
-				fd == STDOUT_FILENO ||
-				fd == STDERR_FILENO ||
-				fd == dirfd(fds))
-				continue;
-			close(fd);
-		}
-		closedir(fds);
-
-		/* Set strict seccomp (only allow read(), write(), exit()). */
-		if (syscall(SYS_seccomp, SECCOMP_SET_MODE_STRICT, 0, NULL) < 0)
-			err(6, "seccomp");
-
-		/* Call the entrypoint. */
-		CALL_ENTRYPOINT;
-	}
+	pid_t pid = fork();
 	if (pid < 0)
-		err(5, "fork");
+		err(-1, "fork");
+	if (pid == 0) {
+		struct stat st;
+		if (stat("/proc/self/exe", &st) < 0)
+			err(-1, "stat");
+		char* path = malloc(st.st_size + 32);
+		if (readlink("/proc/self/exe", path, st.st_size + 32) < 0)
+			err(-1, "readlink");
+		char* dir = strrchr(path, '/');
+		if (dir)
+			++dir;
+		else {
+			path[0] = '.';
+			path[1] = '/';
+			dir = &path[2];
+		}
+		if (!bits)
+			strncpy(dir, "runimg", st.st_size + 32 - (dir - path));
+		else
+			snprintf(dir, st.st_size + 32 - (dir - path), "runimg%u", bits);
+		path[st.st_size + 32] = 0;
+		execl(path, path, NULL);
+		err(-1, "execl");
+	}
 
 	/* Loop for SDL events. */
 	for (;;) {
@@ -177,9 +190,8 @@ int main(int argc, char* argv[]) {
 	/* Kill the parallel process and reap it. */
 	exit:
 	if (kill(pid, SIGKILL) < 0)
-		err(6, "kill");
-	int status;
-	if (wait(&status) < 0)
-		err(6, "wait");
-	return WEXITSTATUS(status);
+		err(-1, "kill");
+	if (wait(NULL) < 0)
+		err(-1, "wait");
+	return EXIT_SUCCESS;
 }

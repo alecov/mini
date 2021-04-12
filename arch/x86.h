@@ -3,7 +3,7 @@
  * - Do not constrain eax and allow it to spill;
  * - ebp cannot be constrained at all.
  */
-#define CALL_ENTRYPOINT do {                                                  \
+#define CALL_ENTRYPOINT(stack) do {                                           \
 	register void* ebx __asm__("ebx") = (void*)IMAGE_ADDR;                \
 	register void* ecx __asm__("ecx") = (void*)-1;                        \
 	register void* edx __asm__("edx") = (void*)0;                         \
@@ -19,7 +19,7 @@
 		"hlt\n\t"                                                     \
 		:: "r"(ebx), "r"(ecx), "r"(edx),                              \
 		   "r"(esi), "r"(edi),                                        \
-		   [stack_addr]"g"(stack_addr)                                \
+		   [stack_addr]"g"(stack)                                     \
 	);                                                                    \
 	__builtin_unreachable();                                              \
 } while (0)
