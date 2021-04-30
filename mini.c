@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/mman.h>
+#include <sys/prctl.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
 #include <sys/wait.h>
@@ -138,10 +139,19 @@ int main(int argc, char* argv[]) {
 		errx(-2, "SDL_CreateRGBSurfaceFrom: %s", SDL_GetError());
 
 	/* Fork a parallel process to run the image. */
+	pid_t ppid = getpid();
 	pid_t pid = fork();
 	if (pid < 0)
 		err(-1, "fork");
 	if (pid == 0) {
+		/* Setup a parent death signal. This guarantees we die if our
+		   parent dies. */
+		if (prctl(PR_SET_PDEATHSIG, SIGKILL) < 0)
+			err(-1, "prctl");
+		if (getppid() != ppid)
+			raise(SIGKILL);
+
+		/* Run runimg. */
 		struct stat st;
 		if (stat("/proc/self/exe", &st) < 0)
 			err(-1, "stat");
@@ -188,10 +198,8 @@ int main(int argc, char* argv[]) {
 		SDL_UpdateWindowSurface(window);
 	}
 
-	/* Kill the parallel process and reap it. */
+	/* Hang on to the parallel process. It dies after we die. */
 	exit:
-	if (kill(pid, SIGKILL) < 0)
-		err(-1, "kill");
 	if (wait(NULL) < 0)
 		err(-1, "wait");
 	return EXIT_SUCCESS;
