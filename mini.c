@@ -181,7 +181,7 @@ int main(int argc, char* argv[]) {
 		if (SDL_WaitEventTimeout(&event, 50))
 			switch (event.type) {
 			case SDL_QUIT:
-				goto exit;
+				return EXIT_SUCCESS;
 			case SDL_WINDOWEVENT:
 				switch (event.window.event) {
 				case SDL_WINDOWEVENT_RESIZED:
@@ -197,10 +197,4 @@ int main(int argc, char* argv[]) {
 		SDL_BlitScaled(video, NULL, surface, NULL);
 		SDL_UpdateWindowSurface(window);
 	}
-
-	/* Hang on to the parallel process. It dies after we die. */
-	exit:
-	if (wait(NULL) < 0)
-		err(-1, "wait");
-	return EXIT_SUCCESS;
 }
